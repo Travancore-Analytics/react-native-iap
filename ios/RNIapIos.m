@@ -457,7 +457,7 @@ RCT_EXPORT_METHOD(presentCodeRedemptionSheet:(RCTPromiseResolveBlock)resolve
                     purchase[@"originalTransactionIdentifierIOS"] = originalTransaction.transactionIdentifier;
                 }
                 
-                if(item.transactionState == SKPaymentTransactionStatePurchased){
+                if(item.transactionState == SKPaymentTransactionStatePurchased || item.transactionState == SKPaymentTransactionStateRestored){
                     [output addObject:purchase];
                 }
             }
