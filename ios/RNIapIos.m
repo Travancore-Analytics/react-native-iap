@@ -410,67 +410,125 @@ RCT_EXPORT_METHOD(presentCodeRedemptionSheet:(RCTPromiseResolveBlock)resolve
 }
 
 -(void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions {
-    for (SKPaymentTransaction *transaction in transactions) {
-        switch (transaction.transactionState) {
-            case SKPaymentTransactionStatePurchasing: {
-                NSLog(@"\n\n Purchase Started !! \n\n");
-                break;
-            }
-            case SKPaymentTransactionStatePurchased: {
-                NSLog(@"\n\n\n\n\n Purchase Successful !! \n\n\n\n\n.");
-                [self purchaseProcess:transaction];
-                break;
-            }
-            case SKPaymentTransactionStateRestored: {
-                NSLog(@"Restored ");
-                [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
-                break;
-            }
-            case SKPaymentTransactionStateDeferred: {
-                NSLog(@"Deferred (awaiting approval via parental controls, etc.)");
-                dispatch_sync(myQueue, ^{
-                    if (hasListeners) {
-                        NSDictionary *err = [NSDictionary dictionaryWithObjectsAndKeys:
-                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"debugMessage",
-                                             @"E_DEFERRED_PAYMENT", @"code",
-                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"message",
-                                             transaction.payment.productIdentifier, @"productId",
-                                             nil
-                                             ];
-                        [self sendEventWithName:@"purchase-error" body:err];
-                    }
-                    [self rejectPromisesForKey:transaction.payment.productIdentifier
-                                          code:@"E_DEFERRED_PAYMENT"
-                                       message:@"The payment was deferred (awaiting approval via parental controls for instance)"
-                                         error:nil];
-                });
-                break;
-            }
-            case SKPaymentTransactionStateFailed: {
-                NSLog(@"\n\n\n\n\n\n Purchase Failed  !! \n\n\n\n\n");
-                [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
-                dispatch_sync(myQueue, ^{
-                    if (hasListeners) {
-                        NSString *responseCode = [@(transaction.error.code) stringValue];
-                        NSDictionary *err = [NSDictionary dictionaryWithObjectsAndKeys:
-                                             responseCode, @"responseCode",
-                                             transaction.error.localizedDescription, @"debugMessage",
-                                             [self standardErrorCode:(int)transaction.error.code], @"code",
-                                             transaction.error.localizedDescription, @"message",
-                                             transaction.payment.productIdentifier, @"productId",
-                                             nil
-                                             ];
-                        [self sendEventWithName:@"purchase-error" body:err];
-                    }
+    [self requestReceiptDataWithBlock:false withBlock:^(NSData *receiptData, NSError *error) {
+        NSMutableArray *output = [NSMutableArray array];
+        if (receiptData != nil) {
+            NSArray<SKPaymentTransaction *> *transactions = [[SKPaymentQueue defaultQueue] transactions];
 
-                    [self rejectPromisesForKey:transaction.payment.productIdentifier code:[self standardErrorCode:(int)transaction.error.code]
-                                    message:transaction.error.localizedDescription
-                                        error:transaction.error];
-                });
-                break;
+            for (SKPaymentTransaction *item in transactions) {
+                NSMutableDictionary *purchase = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                                 @(item.transactionDate.timeIntervalSince1970 * 1000), @"transactionDate",
+                                                 item.transactionIdentifier, @"transactionId",
+                                                 item.payment.productIdentifier, @"productId",
+                                                 @(item.payment.quantity), @"quantityIOS",
+                                                 [receiptData base64EncodedStringWithOptions:0], @"transactionReceipt",
+                                                 nil
+                                                 ];
+                switch (item.transactionState) {
+                    case SKPaymentTransactionStatePurchasing: {
+                        purchase[@"transactionState"] = @"Purchasing";
+                        break;
+                    }
+                    case SKPaymentTransactionStatePurchased: {
+                        purchase[@"transactionState"] = @"Purchased";
+                        [[SKPaymentQueue defaultQueue] finishTransaction:item];
+                        break;
+                    }
+                    case SKPaymentTransactionStateFailed: {
+                        purchase[@"transactionState"] = @"Failed";
+                        [[SKPaymentQueue defaultQueue] finishTransaction:item];
+                        break;
+                    }
+                    case SKPaymentTransactionStateRestored: {
+                        purchase[@"transactionState"] = @"Restored";
+                        [[SKPaymentQueue defaultQueue] finishTransaction:item];
+                        break;
+                    }
+                    case SKPaymentTransactionStateDeferred: {
+                        purchase[@"transactionState"] = @"Deferred";
+                        [[SKPaymentQueue defaultQueue] finishTransaction:item];
+                        break;
+                    }
+                }
+                
+                SKPaymentTransaction *originalTransaction = item.originalTransaction;
+                if (originalTransaction) {
+                    purchase[@"originalTransactionDateIOS"] = @(originalTransaction.transactionDate.timeIntervalSince1970 * 1000);
+                    purchase[@"originalTransactionIdentifierIOS"] = originalTransaction.transactionIdentifier;
+                }
+                
+                if(item.transactionState == SKPaymentTransactionStatePurchased){
+                    [output addObject:purchase];
+                }
+            }
+            if (self->hasListeners && output.count != 0) {
+                [self sendEventWithName:@"purchase-updated" body: output];
             }
         }
-    }
+
+
+    }];
+//    for (SKPaymentTransaction *transaction in transactions) {
+//        switch (transaction.transactionState) {
+//            case SKPaymentTransactionStatePurchasing: {
+//                NSLog(@"\n\n Purchase Started !! \n\n");
+//                break;
+//            }
+//            case SKPaymentTransactionStatePurchased: {
+//                NSLog(@"\n\n\n\n\n Purchase Successful !! \n\n\n\n\n.");
+//                [self purchaseProcess:transaction];
+//                break;
+//            }
+//            case SKPaymentTransactionStateRestored: {
+//                NSLog(@"Restored ");
+//                [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+//                break;
+//            }
+//            case SKPaymentTransactionStateDeferred: {
+//                NSLog(@"Deferred (awaiting approval via parental controls, etc.)");
+//                dispatch_sync(myQueue, ^{
+//                    if (hasListeners) {
+//                        NSDictionary *err = [NSDictionary dictionaryWithObjectsAndKeys:
+//                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"debugMessage",
+//                                             @"E_DEFERRED_PAYMENT", @"code",
+//                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"message",
+//                                             transaction.payment.productIdentifier, @"productId",
+//                                             nil
+//                                             ];
+//                        [self sendEventWithName:@"purchase-error" body:err];
+//                    }
+//                    [self rejectPromisesForKey:transaction.payment.productIdentifier
+//                                          code:@"E_DEFERRED_PAYMENT"
+//                                       message:@"The payment was deferred (awaiting approval via parental controls for instance)"
+//                                         error:nil];
+//                });
+//                break;
+//            }
+//            case SKPaymentTransactionStateFailed: {
+//                NSLog(@"\n\n\n\n\n\n Purchase Failed  !! \n\n\n\n\n");
+//                [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+//                dispatch_sync(myQueue, ^{
+//                    if (hasListeners) {
+//                        NSString *responseCode = [@(transaction.error.code) stringValue];
+//                        NSDictionary *err = [NSDictionary dictionaryWithObjectsAndKeys:
+//                                             responseCode, @"responseCode",
+//                                             transaction.error.localizedDescription, @"debugMessage",
+//                                             [self standardErrorCode:(int)transaction.error.code], @"code",
+//                                             transaction.error.localizedDescription, @"message",
+//                                             transaction.payment.productIdentifier, @"productId",
+//                                             nil
+//                                             ];
+//                        [self sendEventWithName:@"purchase-error" body:err];
+//                    }
+//
+//                    [self rejectPromisesForKey:transaction.payment.productIdentifier code:[self standardErrorCode:(int)transaction.error.code]
+//                                    message:transaction.error.localizedDescription
+//                                        error:transaction.error];
+//                });
+//                break;
+//            }
+//        }
+//    }
 }
 
 -(void)finishTransactionWithIdentifier:(NSString *)transactionIdentifier {
